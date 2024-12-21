@@ -1,3 +1,5 @@
+import xml.etree.ElementTree as ET
+import itertools as ITR
 import json as JSON
 import pathlib as PTH
 
@@ -23,6 +25,7 @@ class WowsIo:
         self.unpacker.unpackGameParams()
         self.unpacker.decodeGameParams()
         self.unpacker.unpack("gui/crew_commander/base/*/*.png")
+        self.unpacker.unpack("banks/ModBuilderSettings.xml")
 
     def fetch_recipients(self):
         recipients = []
@@ -45,6 +48,20 @@ class WowsIo:
                 else:
                     recipients.append(recipient)
         return recipients
+
+    def fetch_donor_voices(self):
+        voices = set()
+        xml = ET.parse(PTH.Path("banks", "ModBuilderSettings.xml"))
+        for match in ITR.chain(
+         xml.findall("./OneCaptain/state[@name='CrewName']"),
+         xml.findall("./MultiCaptain/stateValuesList/stateValue"),
+         xml.findall("./PolyglotCaptain/state[@name='CreName']")):
+            voice = match.attrib["value"]
+            if voice in voices:
+                print(f"Voice name collision detected: {voice}.")
+            voices.add(voice)
+        return sorted(voices, key=lambda s: s.lower())
+
 
 class RecipientCommander:
 
@@ -72,8 +89,6 @@ def main():
     with open("../session.json") as session_json:
         session = JSON.load(session_json)
     io = WowsIo(session["wows_dir"], session["wows_lang"])
-    for recipient in io.fetch_recipients():
-        print(str(recipient))
 
 
 if __name__ == "__main__":
