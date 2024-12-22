@@ -101,14 +101,10 @@ class WowsIo:
             xml = ET.parse(donor_mod / "mod.xml")
             donor_mod_id = donor_mod.name
 
-            # Identify required audio files.
-            files_to_move = set()
+            # Remap audio files.
             for xpath in xpaths:
                 for file_name in xml.findall(xpath + "/../../FilesList/File/Name"):
-                    files_to_move.add(file_name.text)
-                    file_name.text = f"{donor_mod_id}/{file_name.text}"
-            if not files_to_move:
-                continue
+                    file_name.text = f"../../OfficialMods/{donor_mod_id}/{file_name.text}"
 
             event_nodes = set()
             for xpath in xpaths:
@@ -129,12 +125,6 @@ class WowsIo:
                             new_path = CP.deepcopy(path)
                             new_path.find("./StateList/State[Name='CrewName']/Value").text = recipient_name
                             events[event_name].append(new_path)
-
-            # Unpacking every wem in the directory is faster than invoking unpacker once for every file.
-            self.unpacker.unpack(f"banks/OfficialMods/{donor_mod_id}/*.wem")
-            OS.mkdir(mod_dir / donor_mod_id)
-            for file_name in files_to_move:
-                SHU.move(donor_mod / file_name, mod_dir / donor_mod_id / file_name)
 
         for paths in events.values():
             paths.sort(key=lambda p: p.find("./StateList/State[Name='CrewName']/Value").text)
@@ -170,6 +160,7 @@ def main():
     with open("../session.json") as session_json:
         session = JSON.load(session_json)
     io = WowsIo(session["wows_dir"], session["wows_lang"])
+
 
 if __name__ == "__main__":
     main()
