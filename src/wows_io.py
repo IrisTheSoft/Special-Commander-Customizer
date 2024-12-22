@@ -1,10 +1,14 @@
+import copy as CP
 import xml.etree.ElementTree as ET
 import itertools as ITR
 import json as JSON
+import os as OS
 import pathlib as PTH
+import shutil as SHU
 
-import wowsunpack as WUP
+import jinja2 as JJ
 import polib as PO
+import wowsunpack as WUP
 
 
 class NamelessRecipientError(ValueError):
@@ -15,12 +19,32 @@ class PortraitlessRecipientError(ValueError):
     pass
 
 
+voice_xml_template = JJ.Template("""
+<AudioModification.xml>
+\t<AudioModification>
+\t\t<Name>{{mod_name}}</Name>
+{% for external_event_name in event_names %}
+\t\t<ExternalEvent>
+\t\t\t<Name>{{external_event_name}}</Name>
+\t\t\t<Container>
+\t\t\t\t<Name>Voice</Name>
+\t\t\t\t<ExternalId>{{"V" + external_event_name[5:]}}</ExternalId>
+\t\t\t</Container>
+\t\t</ExternalEvent>
+{% endfor %}
+\t</AudioModification>
+</AudioModification.xml>
+""")
+
+
 class WowsIo:
 
     def __init__(self, wows_dir, wows_lang):
         self.language = wows_lang
         self.unpacker = WUP.WoWsUnpack(wows_dir)
-        self.mo = PO.mofile(PTH.Path(wows_dir, "bin", self.unpacker._findLatestBinFolder(), "res", "texts",
+        self.version_dir = PTH.Path(wows_dir, "bin", self.unpacker._findLatestBinFolder())
+        self.working_dir = PTH.Path(OS.getcwd())
+        self.mo = PO.mofile(PTH.Path(self.version_dir, "res", "texts",
                                      wows_lang, "LC_MESSAGES", "global.mo"))
         self.unpacker.unpackGameParams()
         self.unpacker.decodeGameParams()
@@ -62,6 +86,63 @@ class WowsIo:
             voices.add(voice)
         return sorted(voices, key=lambda s: s.lower())
 
+    def install_voices(self, changes, mod_name="Special Commander Customizer", mod_id="SCC"):
+        if not changes:
+            return
+        self.unpacker.unpack("banks/OfficialMods/*/mod.xml")
+        mod_dir = self.version_dir / PTH.Path("res_mods", "banks", "Mods", mod_id)
+        OS.makedirs(mod_dir, exist_ok=False)
+
+        events = {}
+        xpaths = ["./AudioModification/ExternalEvent/Container/Path/StateList" +
+                  f"/State[Name='CrewName'][Value='{donor_name}']"
+                  for donor_name in set(changes.values())]
+        for donor_mod in (self.working_dir / PTH.Path("banks", "OfficialMods")).iterdir():
+            xml = ET.parse(donor_mod / "mod.xml")
+            donor_mod_id = donor_mod.name
+
+            # Identify required audio files.
+            files_to_move = set()
+            for xpath in xpaths:
+                for file_name in xml.findall(xpath + "/../../FilesList/File/Name"):
+                    files_to_move.add(file_name.text)
+                    file_name.text = f"{donor_mod_id}/{file_name.text}"
+            if not files_to_move:
+                continue
+
+            event_nodes = set()
+            for xpath in xpaths:
+                event_nodes.update(xml.findall(xpath + "/../../../.."))
+            for event in event_nodes:
+                event_name = event.find("./Name").text
+                external_id = event.find("./Container/ExternalId").text
+                assert "V" + event_name[5:] == external_id and "Play_" + external_id[1:] == event_name, \
+                    "Failed to derive correspondence between ExternalId and ExternalEvent/Name"
+                if event_name not in events:
+                    # Register event. Corresponding events from all mod files will be merged into this list.
+                    events[event_name] = []
+                for path in event.findall("./Container/Path"):
+                    name = path.find("./StateList/State[Name='CrewName']/Value").text
+                    for recipient_name, donor_name in changes.items():
+                        if donor_name == name:
+                            # Copy is required for supporting multiple recipients with same voice.
+                            new_path = CP.deepcopy(path)
+                            new_path.find("./StateList/State[Name='CrewName']/Value").text = recipient_name
+                            events[event_name].append(new_path)
+
+            # Unpacking every wem in the directory is faster than invoking unpacker once for every file.
+            self.unpacker.unpack(f"banks/OfficialMods/{donor_mod_id}/*.wem")
+            OS.mkdir(mod_dir / donor_mod_id)
+            for file_name in files_to_move:
+                SHU.move(donor_mod / file_name, mod_dir / donor_mod_id / file_name)
+
+        for paths in events.values():
+            paths.sort(key=lambda p: p.find("./StateList/State[Name='CrewName']/Value").text)
+        out_xml = ET.fromstring(voice_xml_template.render(mod_name=mod_name, event_names=sorted(events.keys())))
+        for container in out_xml.findall("./AudioModification/ExternalEvent/Container"):
+            container.extend(events["Play_" + container.find("./ExternalId").text[1:]])
+        ET.ElementTree(out_xml).write(mod_dir / "mod.xml")
+
 
 class RecipientCommander:
 
@@ -89,7 +170,6 @@ def main():
     with open("../session.json") as session_json:
         session = JSON.load(session_json)
     io = WowsIo(session["wows_dir"], session["wows_lang"])
-
 
 if __name__ == "__main__":
     main()
