@@ -133,6 +133,15 @@ class WowsIo:
             container.extend(events["Play_" + container.find("./ExternalId").text[1:]])
         ET.ElementTree(out_xml).write(mod_dir / "mod.xml")
 
+    def install_portraits(self, changes):
+        if not changes:
+            return
+        mod_dir = self.version_dir / PTH.Path("res_mods", "gui", "crew_commander", "base")
+        for recipient, donor in changes.items():
+            absolute_recipient = mod_dir / recipient
+            OS.makedirs(absolute_recipient.parent)
+            SHU.copyfile(donor, absolute_recipient)
+
 
 class RecipientCommander:
 
