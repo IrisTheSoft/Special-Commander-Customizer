@@ -7,6 +7,7 @@ import pathlib as PTH
 import shutil as SHU
 
 import jinja2 as JJ
+import PIL.Image
 import polib as PO
 import wowsunpack as WUP
 
@@ -48,8 +49,9 @@ class WowsIo:
                                      wows_lang, "LC_MESSAGES", "global.mo"))
         self.unpacker.unpackGameParams()
         self.unpacker.decodeGameParams()
-        self.unpacker.unpack("gui/crew_commander/base/*/*.png")
         self.unpacker.unpack("banks/ModBuilderSettings.xml")
+        self.unpacker.unpack("gui/crew_commander/base/*/*.png")
+        self.unpacker.unpack("gui/crew_commander/overlay/*/*.png")
 
     def fetch_recipients(self):
         recipients = []
@@ -139,8 +141,19 @@ class WowsIo:
         mod_dir = self.version_dir / PTH.Path("res_mods", "gui", "crew_commander", "base")
         for recipient, donor in changes.items():
             absolute_recipient = mod_dir / recipient
-            OS.makedirs(absolute_recipient.parent)
+            OS.makedirs(absolute_recipient.parent, exist_ok=True)
             SHU.copyfile(donor, absolute_recipient)
+
+    def blank_overlays(self, recipients):
+        if not recipients:
+            return
+        blank = PIL.Image.new("RGBA", (160, 147), 0)
+        for recipient in recipients:
+            recipient = PTH.Path(recipient)
+            for overlay in PTH.Path("gui", "crew_commander", "overlay", recipient.parent).glob(f"overlay_{recipient.stem}_*.png"):
+                target = PTH.Path(self.version_dir, "res_mods") / overlay
+                OS.makedirs(target.parent, exist_ok=True)
+                blank.save(target)
 
 
 class RecipientCommander:
