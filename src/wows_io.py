@@ -155,10 +155,28 @@ class WowsIo:
                 OS.makedirs(target.parent, exist_ok=True)
                 blank.save(target)
 
+    def install_names(self, changes):
+        if not changes:
+            return
+
+        for entry in self.mo:
+            if entry.msgid in changes:
+                entry.msgstr = changes[entry.msgid]
+                changes.pop(entry.msgid)
+
+        # Install missing entries.
+        for msgid, msgstr in changes.items():
+            self.mo.append(PO.MOEntry(msgid=msgid, msgstr=msgstr))
+
+        mod_dir = self.version_dir / PTH.Path("res_mods", "texts", self.language, "LC_MESSAGES")
+        OS.makedirs(mod_dir, exist_ok=False)
+        self.mo.save(mod_dir / "global.mo")
+
 
 class RecipientCommander:
 
     def __init__(self, code_name, nations, subnation, peculiarity, has_overlay, mo):
+        self.code_name = code_name
         if not subnation and nations:
             subnation = nations[0]
         self.portrait_path = PTH.Path("gui", "crew_commander", "base", subnation, f"{code_name}.png")
